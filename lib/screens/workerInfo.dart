@@ -1,17 +1,63 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_service_app/screens/book_worker.dart';
-import 'package:flutter_service_app/screens/chat.dart'; // Import the ChatScreen
+import 'package:flutter_service_app/screens/chat.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:dio/dio.dart'; // For API calls
 
-class WorkerInfoScreen extends StatelessWidget {
+class WorkerInfoScreen extends StatefulWidget {
   final Map<String, dynamic> workerData;
 
   const WorkerInfoScreen({super.key, required this.workerData});
 
+  @override
+  State<WorkerInfoScreen> createState() => _WorkerInfoScreenState();
+}
+
+class _WorkerInfoScreenState extends State<WorkerInfoScreen> {
+  List<dynamic> reviews = [];
+  bool isLoading = true;
+  String errorMessage = "";
+
+  @override
+  void initState() {
+    super.initState();
+    fetchWorkerReviews();
+  }
+
   Future<String?> getUserToken() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     return prefs.getString('auth_token');
+  }
+
+  // Updated fetch worker reviews method with authentication
+  Future<void> fetchWorkerReviews() async {
+    try {
+      String? token = await getUserToken();
+      var workerId = widget.workerData['id'];
+      
+      var response = await Dio().get(
+        'http://10.0.2.2:5000/api/reviews/$workerId',
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          reviews = response.data;
+          isLoading = false;
+        });
+      } else {
+        setState(() {
+          errorMessage = "Failed to load reviews.";
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        errorMessage = "Error fetching reviews: ${e.toString()}";
+        isLoading = false;
+      });
+    }
   }
 
   // Method to launch phone dialer
@@ -41,6 +87,12 @@ class WorkerInfoScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Get worker's rating from data or reviews
+    double workerRating = widget.workerData['rating'] != null 
+        ? (widget.workerData['rating'] as num).toDouble() 
+        : 0.0;
+    int reviewCount = widget.workerData['reviewsCount'] ?? reviews.length;
+
     return Scaffold(
       backgroundColor: const Color(0xFF121212), // Deep dark background
       appBar: AppBar(
@@ -61,8 +113,8 @@ class WorkerInfoScreen extends StatelessWidget {
                   context,
                   MaterialPageRoute(
                     builder: (context) => ChatScreen(
-                      workerId: workerData['id'], 
-                      workerName: workerData['name'],
+                      workerId: widget.workerData['id'], 
+                      workerName: widget.workerData['name'],
                       userToken: token,
                     ),
                   ),
@@ -111,7 +163,7 @@ class WorkerInfoScreen extends StatelessWidget {
                         radius: 80,
                         backgroundColor: Colors.yellow[700],
                         child: Text(
-                          workerData['name'].toString().substring(0, 1).toUpperCase(),
+                          widget.workerData['name'].toString().substring(0, 1).toUpperCase(),
                           style: const TextStyle(
                             fontSize: 70,
                             fontWeight: FontWeight.bold,
@@ -122,7 +174,7 @@ class WorkerInfoScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 20),
                     Text(
-                      workerData['name'],
+                      widget.workerData['name'],
                       style: const TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.bold,
@@ -132,12 +184,41 @@ class WorkerInfoScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      workerData['specialization'] ?? 'Professional',
+                      widget.workerData['specialization'] ?? 'Professional',
                       style: TextStyle(
                         fontSize: 16,
                         color: Colors.yellow[600],
                         letterSpacing: 1.1,
                       ),
+                    ),
+                    const SizedBox(height: 15),
+                    // Rating display
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        // Star rating
+                        ...List.generate(5, (index) {
+                          return Icon(
+                            index < workerRating.floor() 
+                                ? Icons.star 
+                                : (index < workerRating) 
+                                    ? Icons.star_half 
+                                    : Icons.star_outline,
+                            color: Colors.amber,
+                            size: 28,
+                          );
+                        }),
+                        const SizedBox(width: 10),
+                        // Rating text
+                        Text(
+                          "${workerRating.toStringAsFixed(1)} (${reviewCount})",
+                          style: const TextStyle(
+                            fontSize: 16,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -151,7 +232,7 @@ class WorkerInfoScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      workerData['about'] ?? "No description available.",
+                      widget.workerData['about'] ?? "No description available.",
                       style: TextStyle(
                         fontSize: 16,
                         color: Colors.grey[300],
@@ -163,14 +244,14 @@ class WorkerInfoScreen extends StatelessWidget {
                       context: context,
                       icon: Icons.phone_outlined,
                       label: "Phone",
-                      value: workerData['phoneNo'],
+                      value: widget.workerData['phoneNo'],
                     ),
                     const SizedBox(height: 15),
                     _buildInfoRow(
                       context: context,
                       icon: Icons.location_on_outlined,
                       label: "Location",
-                      value: workerData['location'],
+                      value: widget.workerData['location'],
                     ),
                   ],
                 ),
@@ -189,6 +270,39 @@ class WorkerInfoScreen extends StatelessWidget {
                     _buildSkillChip("Installation"),
                   ],
                 ),
+              ),
+              const SizedBox(height: 30),
+
+              // Reviews section
+              _buildSectionCard(
+                title: "Client Reviews",
+                content: isLoading 
+                  ? const Center(child: CircularProgressIndicator())
+                  : errorMessage.isNotEmpty
+                    ? Center(child: Text(errorMessage, style: TextStyle(color: Colors.red)))
+                    : reviews.isEmpty
+                      ? const Center(child: Text("No reviews yet.", style: TextStyle(color: Colors.white70)))
+                      : Column(
+                          children: List.generate(
+                            reviews.length > 3 ? 3 : reviews.length,
+                            (index) => _buildReviewItem(reviews[index])
+                          ).followedBy([
+                            if (reviews.length > 3)
+                              TextButton(
+                                onPressed: () {
+                                  // Show all reviews dialog
+                                  _showAllReviewsDialog(context, reviews);
+                                },
+                                child: Text(
+                                  "See all ${reviews.length} reviews",
+                                  style: TextStyle(
+                                    color: Colors.yellow[600],
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                          ]).toList(),
+                        ),
               ),
               const SizedBox(height: 30),
 
@@ -218,9 +332,9 @@ class WorkerInfoScreen extends StatelessWidget {
                     if (token != null) {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(
+                        MaterialPageRoute( 
                           builder: (context) => BookWorkerScreen(
-                            workerData: workerData,
+                            workerData: widget.workerData,
                             userToken: token,
                           ),
                         ),
@@ -257,6 +371,129 @@ class WorkerInfoScreen extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // Dialog to show all reviews
+  void _showAllReviewsDialog(BuildContext context, List<dynamic> allReviews) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(15),
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    "All Reviews",
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: allReviews.length,
+                  itemBuilder: (context, index) {
+                    return _buildReviewItem(allReviews[index]);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Updated review item widget with client name
+  Widget _buildReviewItem(Map<String, dynamic> review) {
+    // Format timestamp if available
+    String formattedDate = "Recently";
+    if (review['timestamp'] != null) {
+      try {
+        DateTime date = DateTime.parse(review['timestamp']);
+        formattedDate = "${date.day}/${date.month}/${date.year}";
+      } catch (e) {
+        // Keep default "Recently" if parsing fails
+      }
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2A2A2A),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.grey[800]!,
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Client name and date
+          Row(
+            children: [
+              Text(
+                review['userName'] ?? "Anonymous User",
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                formattedDate,
+                style: TextStyle(
+                  color: Colors.grey[500],
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Star rating
+          Row(
+            children: List.generate(5, (index) {
+              return Icon(
+                index < (review['rating'] ?? 0) ? Icons.star : Icons.star_outline,
+                color: Colors.amber,
+                size: 18,
+              );
+            }),
+          ),
+          const SizedBox(height: 10),
+          // Review comment
+          Text(
+            review['comment'] ?? "No comment provided.",
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              height: 1.5,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -360,7 +597,3 @@ class WorkerInfoScreen extends StatelessWidget {
   }
 }
 
-
-
-
-// Error launching phone dialer     PlatformException(Channel-error, unable to establish connection on channel:"dev.flutter.pigeon.url_launcher_android.UrlLauncherApi.canLaunchUrl" , null ,null)                   got this error

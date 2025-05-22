@@ -15,6 +15,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
   bool isLoading = false;
@@ -31,33 +32,20 @@ class _LoginScreenState extends State<LoginScreen> {
     if (token != null && token.isNotEmpty) {
       String? role = prefs.getString('user_role');
       if (role == 'user') {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => HomeScreen()),
-        );
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomeScreen()));
       } else if (role == 'worker') {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => WorkerHomeScreen()),
-        );
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => WorkerHomeScreen()));
       } else if (role == 'admin') {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => AdminHomeScreen()),
-        );
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AdminHomeScreen()));
       }
     }
   }
 
   Future<void> loginUser(BuildContext context) async {
+    if (!_formKey.currentState!.validate()) return;
+
     final email = emailController.text.trim();
     final password = passwordController.text.trim();
-
-    if (email.isEmpty || password.isEmpty) {
-      _showSnackBar("Email and password cannot be empty");
-      return;
-    }
-
     final url = Uri.parse('http://10.0.2.2:5000/api/users/login');
 
     setState(() {
@@ -68,50 +56,36 @@ class _LoginScreenState extends State<LoginScreen> {
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'email': email,
-          'password': password,
-        }),
+        body: json.encode({'email': email, 'password': password}),
       );
 
       if (response.statusCode == 200) {
-        final responseData = json.decode(response.body);
-        String token = responseData['token'];
-        String role = responseData['user']['role'];
-        String userId = responseData['user']['id'];
-        String name = responseData['user']['name'];
-
+        final data = json.decode(response.body);
         SharedPreferences prefs = await SharedPreferences.getInstance();
-        await prefs.setString('auth_token', token);
-        await prefs.setString('user_role', role);
-        await prefs.setString('user_id', userId);
-        await prefs.setString('name',name);
+        await prefs.setString('auth_token', data['token']);
+        await prefs.setString('user_role', data['user']['role']);
+        await prefs.setString('user_id', data['user']['id']);
+        await prefs.setString('name', data['user']['name']);
 
         _showSnackBar("Login successful!");
 
-        if (role == 'user') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => HomeScreen()),
-          );
-        } else if (role == 'worker') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => WorkerHomeScreen()),
-          );
-        } else if (role == 'admin') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => AdminHomeScreen()),
-          );
+        switch (data['user']['role']) {
+          case 'user':
+            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomeScreen()));
+            break;
+          case 'worker':
+            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => WorkerHomeScreen()));
+            break;
+          case 'admin':
+            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AdminHomeScreen()));
+            break;
         }
       } else {
-        final responseData = json.decode(response.body);
-        String errorMessage = responseData['error'] ?? "Invalid email or password";
-        _showSnackBar("Login failed: $errorMessage");
+        final data = json.decode(response.body);
+        _showSnackBar("Login failed: ${data['error'] ?? 'Invalid credentials'}");
       }
-    } catch (error) {
-      _showSnackBar("An error occurred: $error");
+    } catch (e) {
+      _showSnackBar("An error occurred: $e");
     } finally {
       setState(() {
         isLoading = false;
@@ -121,10 +95,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.redAccent,
-      ),
+      SnackBar(content: Text(message), backgroundColor: Colors.yellow[700]),
     );
   }
 
@@ -132,87 +103,107 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text("Login", style: TextStyle(color: Colors.white)),
+        title: const Text("Login", style: TextStyle(color: Colors.white)),
         backgroundColor: Colors.black,
         elevation: 0,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 30.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "Welcome Back!",
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.yellow[700],
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Welcome Back!",
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.yellow[700],
+                ),
               ),
-            ),
-            SizedBox(height: 20),
+              const SizedBox(height: 20),
 
-            buildTextField(emailController, "Email", Icons.email),
-            SizedBox(height: 10),
+              buildTextField(
+                controller: emailController,
+                label: "Email",
+                icon: Icons.email,
+                validator: (value) {
+                  if (value == null || value.isEmpty) return "Email is required";
+                  final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+                  if (!emailRegex.hasMatch(value)) return "Enter a valid email";
+                  return null;
+                },
+              ),
+              const SizedBox(height: 10),
 
-            buildTextField(passwordController, "Password", Icons.lock, obscureText: true),
-            SizedBox(height: 20),
+              buildTextField(
+                controller: passwordController,
+                label: "Password",
+                icon: Icons.lock,
+                obscureText: true,
+                validator: (value) {
+                  if (value == null || value.isEmpty) return "Password is required";
+                  
+                  return null;
+                },
+              ),
+              const SizedBox(height: 20),
 
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: isLoading ? null : () => loginUser(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.yellow[700],
-                  padding: EdgeInsets.symmetric(vertical: 15.0),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10.0),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: isLoading ? null : () => loginUser(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.yellow[700],
+                    padding: const EdgeInsets.symmetric(vertical: 15.0),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+                  ),
+                  child: isLoading
+                      ? const CircularProgressIndicator(color: Colors.black)
+                      : const Text("Login", style: TextStyle(fontSize: 18, color: Colors.black)),
+                ),
+              ),
+              const SizedBox(height: 15),
+
+              Center(
+                child: TextButton(
+                  onPressed: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => UserTypeScreen()));
+                  },
+                  child: Text(
+                    "Don't have an account? Register",
+                    style: TextStyle(color: Colors.yellow[700], fontSize: 16),
                   ),
                 ),
-                child: isLoading
-                    ? CircularProgressIndicator(color: Colors.black)
-                    : Text(
-                        "Login",
-                        style: TextStyle(fontSize: 18, color: Colors.black),
-                      ),
               ),
-            ),
-            SizedBox(height: 15),
-
-            Center(
-              child: TextButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => UserTypeScreen()),
-                  );
-                },
-                child: Text(
-                  "Don't have an account? Register",
-                  style: TextStyle(color: Colors.yellow[700], fontSize: 16),
-                ),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget buildTextField(TextEditingController controller, String label, IconData icon, {bool obscureText = false}) {
-    return TextField(
+  Widget buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    bool obscureText = false,
+    String? Function(String?)? validator,
+  }) {
+    return TextFormField(
       controller: controller,
       obscureText: obscureText,
+      validator: validator,
       decoration: InputDecoration(
         prefixIcon: Icon(icon, color: Colors.white),
         labelText: label,
-        labelStyle: TextStyle(color: Colors.white),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10.0),
-        ),
+        labelStyle: const TextStyle(color: Colors.white),
         filled: true,
         fillColor: Colors.black12,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10.0)),
       ),
-      style: TextStyle(color: Colors.white),
+      style: const TextStyle(color: Colors.white),
     );
   }
 }

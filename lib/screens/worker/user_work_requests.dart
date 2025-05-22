@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 class UserWorkRequestsPage extends StatefulWidget {
   final String workerId;
@@ -104,7 +106,7 @@ class _UserWorkRequestsPageState extends State<UserWorkRequestsPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Work request status updated to $status'),
-            backgroundColor: Colors.green,
+            backgroundColor: Colors.yellow[700],
           ),
         );
       } else {
@@ -166,6 +168,233 @@ class _UserWorkRequestsPageState extends State<UserWorkRequestsPage> {
               child: Text('Cancel'),
             ),
           ],
+        );
+      },
+    );
+  }
+
+  // Show detailed view with map
+  void _showRequestDetailsWithMap(BuildContext context, dynamic request) {
+    // Parse location coordinates from the request
+    LatLng locationCoords;
+    
+    try {
+      // First try to parse coordinates from the request
+      if (request['coordinates'] != null) {
+        // If coordinates are stored in a nested object
+        if (request['coordinates'] is Map) {
+          double lat = double.parse(request['coordinates']['latitude'].toString());
+          double lng = double.parse(request['coordinates']['longitude'].toString());
+          locationCoords = LatLng(lat, lng);
+        } 
+        // If coordinates are stored as a string like "lat, lng"
+        else if (request['coordinates'] is String) {
+          List<String> parts = request['coordinates'].toString().split(',');
+          if (parts.length == 2) {
+            double lat = double.parse(parts[0].trim());
+            double lng = double.parse(parts[1].trim());
+            locationCoords = LatLng(lat, lng);
+          } else {
+            // Default fallback location if parsing fails
+            locationCoords = LatLng(37.7749, -122.4194); // San Francisco as default
+          }
+        } else {
+          // Default fallback location if coordinates format is unknown
+          locationCoords = LatLng(37.7749, -122.4194);
+        }
+      } 
+      // Try to parse from location field if it might contain coordinates
+      else if (request['location'] != null && request['location'].toString().contains(',')) {
+        try {
+          List<String> parts = request['location'].toString().split(',');
+          if (parts.length == 2) {
+            double lat = double.parse(parts[0].trim());
+            double lng = double.parse(parts[1].trim());
+            locationCoords = LatLng(lat, lng);
+          } else {
+            // Default fallback location
+            locationCoords = LatLng(37.7749, -122.4194);
+          }
+        } catch (e) {
+          // Default fallback location if parsing fails
+          locationCoords = LatLng(37.7749, -122.4194);
+        }
+      } else {
+        // Default fallback location if no location data
+        locationCoords = LatLng(37.7749, -122.4194);
+      }
+    } catch (e) {
+      print('Location parsing error: $e');
+      // Default fallback location
+      locationCoords = LatLng(37.7749, -122.4194);
+    }
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Container(
+            width: MediaQuery.of(context).size.width * 0.9,
+            padding: EdgeInsets.all(20),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _safeGetString(request, 'title', 'Work Request Details'),
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _getStatusColor(_safeGetString(request, 'status', '')),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          _safeGetString(request, 'status', 'Unknown').toUpperCase(),
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 15),
+                  Text(
+                    'Description:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Text(_safeGetString(request, 'description', 'No description provided')),
+                  SizedBox(height: 15),
+                  Text(
+                    'Client:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Text(_safeGetString(request, 'userName', 'Unknown client')),
+                  SizedBox(height: 5),
+                  Text(_safeGetString(request, 'userPhone', 'No phone provided')),
+                  SizedBox(height: 15),
+                  Text(
+                    'Deadline:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Text(_formatDeadline(request['deadline'])),
+                  SizedBox(height: 15),
+                  Text(
+                    'Location:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Text(_safeGetString(request, 'location', 'Location not specified')),
+                  SizedBox(height: 15),
+                  
+                  // Map display section
+                  Container(
+                    height: 200,
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Stack(
+                        children: [
+                          FlutterMap(
+                            options: MapOptions(
+                              center: locationCoords,
+                              zoom: 14.0,
+                              interactiveFlags: InteractiveFlag.all,
+                            ),
+                            children: [
+                              TileLayer(
+                                urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                subdomains: const ['a', 'b', 'c'],
+                              ),
+                              MarkerLayer(
+                                markers: [
+                                  Marker(
+                                    point: locationCoords,
+                                    width: 40,
+                                    height: 40,
+                                    child: Icon(
+                                      Icons.location_pin,
+                                      color: Colors.red,
+                                      size: 40,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          // Attribution
+                          Positioned(
+                            bottom: 5,
+                            right: 5,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.7),
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                              child: const Text(
+                                '© OpenStreetMap contributors',
+                                style: TextStyle(fontSize: 8, color: Colors.black54),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  
+                  SizedBox(height: 20),
+                  // Actions section
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      // Update status button - only show if status allows updates
+                      if (_safeGetString(request, 'status', '') == 'pending' || 
+                          _safeGetString(request, 'status', '') == 'accepted')
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.yellow[700],
+                            foregroundColor: Colors.black,
+                          ),
+                          onPressed: () {
+                            Navigator.of(context).pop();
+                            _showStatusUpdateDialog(
+                              context, 
+                              request['requestId'] ?? request['id'],
+                              request['status']
+                            );
+                          },
+                          child: Text('Update Status'),
+                        ),
+                      
+                      TextButton(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                        },
+                        child: Text('Close'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
         );
       },
     );
@@ -266,9 +495,13 @@ class _UserWorkRequestsPageState extends State<UserWorkRequestsPage> {
                                   children: [
                                     Icon(Icons.location_on, size: 16, color: Colors.grey),
                                     SizedBox(width: 4),
-                                    Text(
-                                      _safeGetString(request, 'location', 'Location not specified'),
-                                      style: TextStyle(color: Colors.grey),
+                                    Expanded(
+                                      child: Text(
+                                        _safeGetString(request, 'location', 'Location not specified'),
+                                        style: TextStyle(color: Colors.grey),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -303,12 +536,8 @@ class _UserWorkRequestsPageState extends State<UserWorkRequestsPage> {
                                   )
                                 : null,
                             onTap: () {
-                              // Show dialog with status update options
-                              _showStatusUpdateDialog(
-                                context, 
-                                request['requestId'] ?? request['id'],
-                                request['status']
-                              );
+                              // Show detailed view with map instead of just status update dialog
+                              _showRequestDetailsWithMap(context, request);
                             },
                           ),
                         );

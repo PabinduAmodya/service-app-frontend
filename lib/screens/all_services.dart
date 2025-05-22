@@ -14,14 +14,13 @@ class AllServicesScreen extends StatelessWidget {
       {"icon": Icons.brush, "title": "Painter"},
       {"icon": Icons.home_repair_service, "title": "Mason"},
       {"icon": Icons.build_circle, "title": "Welder"},
-      {"icon": Icons.cleaning_services, "title": "Cleaner"},
-      {"icon": Icons.more_horiz, "title": "Other Services"},
+      {"icon": Icons.cleaning_services, "title": "Cleaner"}
     ];
 
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text("All Services", style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text("All Services", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
         backgroundColor: Colors.yellow[700],
         centerTitle: true,
       ),

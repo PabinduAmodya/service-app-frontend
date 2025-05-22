@@ -156,7 +156,7 @@ class WelcomeScreen extends StatelessWidget {
                                   ),
                                 ),
                                 SizedBox(width: 12),
-                                Icon(Icons.arrow_forward_rounded, size: 24),
+                                Icon(Icons.arrow_forward_rounded, size: 24, color: Colors.black,),
                               ],
                             ),
                           ),

@@ -14,6 +14,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
   final TextEditingController nameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
+  final TextEditingController phoneNoController = TextEditingController();
   bool isLoading = false; // Track loading state
 
   // Function to handle user registration
@@ -21,8 +22,9 @@ Future<void> registerUser(BuildContext context) async {
   final name = nameController.text.trim();
   final email = emailController.text.trim();
   final password = passwordController.text.trim();
+  final phoneNo =phoneNoController.text.trim();
 
-  if (name.isEmpty || email.isEmpty || password.isEmpty) {
+  if (name.isEmpty || email.isEmpty || password.isEmpty || phoneNo.isEmpty) {
     _showSnackBar("All fields are required");
     return;
   }
@@ -41,6 +43,7 @@ Future<void> registerUser(BuildContext context) async {
         'name': name,
         'email': email,
         'password': password,
+        'phoneNo' : phoneNo
       }),
     );
 
@@ -72,7 +75,7 @@ Future<void> registerUser(BuildContext context) async {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.redAccent,
+        backgroundColor: Colors.yellow[700],
       ),
     );
   }
@@ -114,9 +117,15 @@ Future<void> registerUser(BuildContext context) async {
               buildTextField(emailController, "Email", Icons.email),
               SizedBox(height: 15), // Space between fields
 
+              // Phone No TextField
+              buildTextField(phoneNoController, "Phone Number", Icons.phone),
+              SizedBox(height: 15), // Space before button
+
               // Password TextField
               buildTextField(passwordController, "Password", Icons.lock, obscureText: true),
               SizedBox(height: 30), // Space before button
+
+              
 
               // Register Button
               SizedBox(

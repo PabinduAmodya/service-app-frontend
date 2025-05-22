@@ -20,7 +20,7 @@ class _HomeScreenState extends State<HomeScreen> {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     return {
       'token': prefs.getString('auth_token'),
-      'username': prefs.getString('username') ?? "User",
+      'name': prefs.getString('name') ?? "User",
     };
   }
 
@@ -28,7 +28,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> logout(BuildContext context) async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.remove('auth_token');
-    await prefs.remove('username');
+    await prefs.remove('name');
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (context) => const LoginScreen()),
@@ -133,7 +133,7 @@ class _HomeScreenState extends State<HomeScreen> {
           }
 
           String? token = snapshot.data?['token'];
-          String username = snapshot.data?['username'] ?? "User";
+          String username = snapshot.data?['name'] ?? "User";
 
           if (token == null) {
             return Center(
