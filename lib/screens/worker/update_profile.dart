@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
+import 'package:dio/dio.dart';
 
 class UpdateProfileScreen extends StatefulWidget {
   const UpdateProfileScreen({super.key});
@@ -13,8 +14,10 @@ class UpdateProfileScreen extends StatefulWidget {
 class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = true;
+  bool _isUpdating = false;
   File? _imageFile;
   final ImagePicker _picker = ImagePicker();
+  final Dio _dio = Dio();
 
   // User data
   String? workerId;
@@ -24,16 +27,9 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _aboutController = TextEditingController();
   final TextEditingController _locationController = TextEditingController();
-  final TextEditingController _specializationController = TextEditingController();
-  
-  // Skills list - make this dynamic based on your actual skills data
-  final List<String> _availableSkills = [
-    'Plumbing', 'Electrical', 'Carpentry', 'Painting', 
-    'Cleaning', 'Gardening', 'Moving', 'Repair', 'Installation'
-  ];
-  final List<String> _selectedSkills = [];
+  final TextEditingController _workTypeController = TextEditingController();
+  final TextEditingController _experienceController = TextEditingController();
 
   @override
   void initState() {
@@ -46,21 +42,37 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
     setState(() {
       workerId = prefs.getString('user_id');
       authToken = prefs.getString('auth_token');
-      
-      // For demo purposes, pre-fill with sample data
-      // In a real app, you would fetch this from your API
-      _nameController.text = prefs.getString('username') ?? 'John Doe';
-      _phoneController.text = '+1 234 567 8900';
-      _emailController.text = 'worker@example.com';
-      _aboutController.text = 'Professional with 5+ years of experience in home services.';
-      _locationController.text = 'New York, NY';
-      _specializationController.text = 'Home Maintenance';
-      
-      // Sample selected skills
-      _selectedSkills.addAll(['Plumbing', 'Repair', 'Installation']);
-      
-      _isLoading = false;
     });
+
+    if (workerId == null || authToken == null) {
+      _showError('User not authenticated');
+      return;
+    }
+
+    try {
+      // Fetch current worker data
+      final response = await _dio.get(
+        'http://10.0.2.2:5000/api/workers/$workerId',
+        options: Options(headers: {'Authorization': 'Bearer $authToken'}),
+      );
+
+      if (response.statusCode == 200) {
+        final userData = response.data;
+        setState(() {
+          _nameController.text = userData['name'] ?? '';
+          _phoneController.text = userData['phoneNo'] ?? '';
+          _emailController.text = userData['email'] ?? '';
+          _locationController.text = userData['location'] ?? '';
+          _workTypeController.text = userData['workType'] ?? '';
+          _experienceController.text = userData['yearsOfExperience']?.toString() ?? '';
+          _isLoading = false;
+        });
+      } else {
+        _showError('Failed to load profile data');
+      }
+    } catch (e) {
+      _showError('Error loading profile: ${e.toString()}');
+    }
   }
 
   Future<void> _pickImage() async {
@@ -72,59 +84,67 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
         });
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error picking image: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showError('Error picking image: $e');
     }
   }
 
   Future<void> _updateProfile() async {
     if (_formKey.currentState!.validate()) {
       setState(() {
-        _isLoading = true;
+        _isUpdating = true;
       });
 
-      // Simulate API request delay
-      await Future.delayed(const Duration(seconds: 2));
-
-      // Here you would normally send the data to your API
-      // For demo purposes, we'll just save some basic info to SharedPreferences
       try {
-        SharedPreferences prefs = await SharedPreferences.getInstance();
-        await prefs.setString('username', _nameController.text);
-        
-        setState(() {
-          _isLoading = false;
-        });
+        final updateData = {
+          'name': _nameController.text,
+          'email': _emailController.text,
+          'phoneNo': _phoneController.text,
+          'location': _locationController.text,
+          'workType': _workTypeController.text,
+          'yearsOfExperience': int.tryParse(_experienceController.text) ?? 0,
+        };
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Profile updated successfully'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 2),
-          ),
+        final response = await _dio.put(
+          'http://10.0.2.2:5000/api/workers/$workerId',
+          data: updateData,
+          options: Options(headers: {'Authorization': 'Bearer $authToken'}),
         );
 
-        // Pop back to home screen after success
-        Future.delayed(const Duration(seconds: 2), () {
-          Navigator.pop(context, true); // Return true to indicate successful update
-        });
+        if (response.statusCode == 200) {
+          // Update successful
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Profile updated successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          
+          // Update local storage if needed
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('username', _nameController.text);
+          
+          // Return to previous screen with success
+          Navigator.pop(context, true);
+        } else {
+          _showError('Failed to update profile');
+        }
       } catch (e) {
+        _showError('Error updating profile: ${e.toString()}');
+      } finally {
         setState(() {
-          _isLoading = false;
+          _isUpdating = false;
         });
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to update profile: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
       }
     }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+      ),
+    );
   }
 
   Widget _buildSectionTitle(String title) {
@@ -147,6 +167,7 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
     required IconData icon,
     bool multiline = false,
     String? Function(String?)? validator,
+    TextInputType? keyboardType,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -154,6 +175,7 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
         controller: controller,
         style: const TextStyle(color: Colors.white),
         maxLines: multiline ? 4 : 1,
+        keyboardType: keyboardType,
         decoration: InputDecoration(
           labelText: label,
           labelStyle: TextStyle(color: Colors.grey[400]),
@@ -268,73 +290,6 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
     );
   }
 
-  Widget _buildSkillsSelector() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.yellow[700]!.withOpacity(0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Select Your Skills',
-            style: TextStyle(color: Colors.grey[400]),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _availableSkills.map((skill) {
-              final isSelected = _selectedSkills.contains(skill);
-              return GestureDetector(
-                onTap: () {
-                  setState(() {
-                    if (isSelected) {
-                      _selectedSkills.remove(skill);
-                    } else {
-                      _selectedSkills.add(skill);
-                    }
-                  });
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? Colors.yellow[700]
-                        : Colors.yellow[700]!.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: Colors.yellow[700]!,
-                      width: 1,
-                    ),
-                  ),
-                  child: Text(
-                    skill,
-                    style: TextStyle(
-                      color: isSelected ? Colors.black : Colors.yellow[700],
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-          if (_selectedSkills.isEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                'Please select at least one skill',
-                style: TextStyle(color: Colors.red[300], fontSize: 12),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -377,11 +332,11 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
                         label: 'Phone Number',
                         controller: _phoneController,
                         icon: Icons.phone,
+                        keyboardType: TextInputType.phone,
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return 'Please enter your phone number';
                           }
-                          // Add phone validation logic if needed
                           return null;
                         },
                       ),
@@ -389,6 +344,7 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
                         label: 'Email',
                         controller: _emailController,
                         icon: Icons.email,
+                        keyboardType: TextInputType.emailAddress,
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return 'Please enter your email';
@@ -399,35 +355,39 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
                           return null;
                         },
                       ),
+                      
+                      _buildSectionTitle('Professional Information'),
                       _buildTextField(
                         label: 'Location',
                         controller: _locationController,
                         icon: Icons.location_on,
                       ),
-                      
-                      _buildSectionTitle('Professional Information'),
                       _buildTextField(
-                        label: 'Specialization',
-                        controller: _specializationController,
+                        label: 'Work Type',
+                        controller: _workTypeController,
                         icon: Icons.work,
                       ),
                       _buildTextField(
-                        label: 'About Me',
-                        controller: _aboutController,
-                        icon: Icons.description,
-                        multiline: true,
+                        label: 'Years of Experience',
+                        controller: _experienceController,
+                        icon: Icons.timeline,
+                        keyboardType: TextInputType.number,
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter your experience';
+                          }
+                          if (int.tryParse(value) == null) {
+                            return 'Please enter a valid number';
+                          }
+                          return null;
+                        },
                       ),
-                      
-                      const SizedBox(height: 10),
-                      _buildSectionTitle('Skills'),
-                      const SizedBox(height: 8),
-                      _buildSkillsSelector(),
                       
                       const SizedBox(height: 40),
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: _selectedSkills.isEmpty ? null : _updateProfile,
+                          onPressed: _isUpdating ? null : _updateProfile,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.yellow[700],
                             foregroundColor: Colors.black,
@@ -439,14 +399,16 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
                             ),
                             elevation: 5,
                           ),
-                          child: const Text(
-                            'SAVE CHANGES',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1.2,
-                            ),
-                          ),
+                          child: _isUpdating
+                              ? const CircularProgressIndicator(color: Colors.black)
+                              : const Text(
+                                  'SAVE CHANGES',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
                         ),
                       ),
                       const SizedBox(height: 30),
@@ -463,9 +425,9 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
     _nameController.dispose();
     _phoneController.dispose();
     _emailController.dispose();
-    _aboutController.dispose();
     _locationController.dispose();
-    _specializationController.dispose();
+    _workTypeController.dispose();
+    _experienceController.dispose();
     super.dispose();
   }
 }
